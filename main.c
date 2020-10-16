@@ -9,18 +9,21 @@ int main(int argc, char** argv) {
 
     MPI_Init(NULL, NULL);
 
-    int world_size;
-    MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+    int world_size; MPI_Comm_size(MPI_COMM_WORLD, &world_size);
 
-    int world_rank;
-    MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+    int world_rank; MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
 
     if (world_rank != 0) {
         int *processInputSegment = malloc(((world_size / world_rank) + 1) * sizeof(int));
         initializeProcessInput(numbersToSort, sizeof(numbersToSort)/sizeof(numbersToSort[0]), world_rank, world_size, processInputSegment);
-        printf("%d \n", processInputSegment[0]);
-//        printf("%d \n", processInputSegment[1]);
-//        printf("%d \n", processInputSegment[2]);
+
+        int pivot;
+        MPI_Bcast(&pivot, 1, MPI_INT, 0, MPI_COMM_WORLD);
+        printf("%d \n", pivot);
+
+    } else {
+        int pivot = 10;
+        MPI_Bcast(&pivot, 1, MPI_INT, 0, MPI_COMM_WORLD);
     }
 
     MPI_Finalize();
