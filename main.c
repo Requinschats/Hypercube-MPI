@@ -48,6 +48,8 @@ int main(int argc, char **argv) {
 
             sequentialQuicksort(numbersSmallerThanPivotFromOtherProcess, world_rank);
             sequentialQuicksort(processInputSegment, world_rank);
+            //mergeTwoArrays
+
             free(numbersSmallerThanPivotFromOtherProcess);
 
         } else {
