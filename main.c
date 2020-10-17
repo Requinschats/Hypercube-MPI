@@ -33,6 +33,18 @@ int main(int argc, char **argv) {
         assignInputSmallerThanPivot(processInputSegment, numbersToSortLength, pivot, inputsSmallerThanPivot);
         assignInputBiggerThanPivot(processInputSegment, numbersToSortLength, pivot, inputsBiggerThanPivot);
 
+        if(world_rank % 2 == 0) {
+            MPI_Send(inputsBiggerThanPivot, 10, MPI_INT, 1, 0, MPI_COMM_WORLD);
+            int *numberSmallerThanPivotFromOtherProcess = malloc(10* sizeof(int));
+            MPI_Recv (numberSmallerThanPivotFromOtherProcess, 10, MPI_INT, 1,0,MPI_COMM_WORLD,MPI_STATUS_IGNORE);
+            printf("%d \n", numberSmallerThanPivotFromOtherProcess[0]);
+        } else {
+            MPI_Send(inputsSmallerThanPivot, 10, MPI_INT, 2, 0,MPI_COMM_WORLD);
+            int *numberBiggerThanPivotFromOtherProcess = malloc(10* sizeof(int));
+            MPI_Recv (numberBiggerThanPivotFromOtherProcess,10,MPI_INT,2,0,MPI_COMM_WORLD,MPI_STATUS_IGNORE);
+            printf("%d \n", numberBiggerThanPivotFromOtherProcess[0]);
+        }
+
     } else {
         int pivot = getPivot(numbersToSort, numbersToSortLength);
         MPI_Bcast(&pivot, 1, MPI_INT, 0, MPI_COMM_WORLD);
