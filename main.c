@@ -3,17 +3,30 @@
 #include <string.h>
 #include <stdlib.h>
 
-void initializeProcessInput(int input[], int inputSize, int processRank, int world_size, int *arrayToAssignResult);
-
 int getPivot(int numbersToSort[], int numbersToSortLength);
-
-void assignInputBiggerThanPivot(int input[], int inputLength, int pivot, int *arrayToAssignResult);
-
-void assignInputSmallerThanPivot(int input[], int inputLength, int pivot, int *arrayToAssignResult);
 
 void sequentialQuicksort(int *arrayPointer, int arrayLength);
 
 void printIntegerArray(int *arrayPointer, int arrayLength);
+
+struct ProcessInput getProcessInputSmallerThanPivot(struct ProcessInput processInput, int pivot);
+
+struct ProcessInput getProcessInputBiggerThanPivot(struct ProcessInput processInput, int pivot);
+
+void handleEvenChildProcess (struct ProcessInput inputsBiggerThanPivot, struct ProcessInput inputsSamllerThanPivot, int world_rank, int numbersToSortLength);
+
+void handleOddChildProcess (struct ProcessInput inputsSmallerThanPivot, struct ProcessInput inputsBiggerThanPivot, int world_rank, int numbersToSortLength);
+
+struct ProcessInput getProcessInputFromArrayPointer(int *pointerToArray, int arrayLength);
+
+struct ProcessInput mergeProcessInputs(struct ProcessInput processInput1, struct ProcessInput processInput2);
+
+        struct ProcessInput {
+    int numbersToSort[20];
+    int numbersCount;
+};
+
+struct ProcessInput getProcessInput(int worldProcessCount, int processRank, int numbersToSort[], int numbersCount);
 
 int main(int argc, char **argv) {
     int numbersToSort[] = {2000, 9, 1, 10, 100, 1000, 34, 56, 342, 5, 4, 7, 68, 433, 23, 90, 91, 76, 2, 2001, 4002};
@@ -26,50 +39,83 @@ int main(int argc, char **argv) {
     MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
 
     if (world_rank != 0) {
-        int *processInputSegment = malloc(((world_size / world_rank) + 1) * sizeof(int));
-        initializeProcessInput(numbersToSort, sizeof(numbersToSort) / sizeof(numbersToSort[0]), world_rank, world_size, processInputSegment);
+        struct ProcessInput processInput = getProcessInput(world_size, world_rank, numbersToSort, sizeof(numbersToSort) / sizeof(numbersToSort[0]));
 
         int pivot;
         MPI_Bcast(&pivot, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
-        int *inputsSmallerThanPivot = malloc(((world_size / world_rank) + 1) * sizeof(int));
-        int *inputsBiggerThanPivot = malloc(((world_size / world_rank) + 1) * sizeof(int));
-        assignInputSmallerThanPivot(processInputSegment, numbersToSortLength, pivot, inputsSmallerThanPivot);
-        assignInputBiggerThanPivot(processInputSegment, numbersToSortLength, pivot, inputsBiggerThanPivot);
+        struct ProcessInput inputsSmallerThanPivot = getProcessInputSmallerThanPivot(processInput, pivot);
+        struct ProcessInput inputsBiggerThanPivot = getProcessInputBiggerThanPivot(processInput, pivot);
 
-        if (world_rank % 2 == 0) {
-            MPI_Send(inputsBiggerThanPivot, numbersToSortLength, MPI_INT, 1, 0, MPI_COMM_WORLD);
-            int *numbersSmallerThanPivotFromOtherProcess = malloc(world_rank* sizeof(int));
-            MPI_Recv (numbersSmallerThanPivotFromOtherProcess, numbersToSortLength, MPI_INT, 1,0,MPI_COMM_WORLD,MPI_STATUS_IGNORE);
-
-            printf("%d \n", pivot);
-            printIntegerArray(inputsSmallerThanPivot, numbersToSortLength);
-            printIntegerArray(numbersSmallerThanPivotFromOtherProcess, numbersToSortLength);
-
-            sequentialQuicksort(numbersSmallerThanPivotFromOtherProcess, world_rank);
-            sequentialQuicksort(processInputSegment, world_rank);
-            //mergeTwoArrays
-
-            free(numbersSmallerThanPivotFromOtherProcess);
-
-        } else {
-            MPI_Send(inputsSmallerThanPivot, numbersToSortLength, MPI_INT, 2, 0,MPI_COMM_WORLD);
-            int *numbersBiggerThanPivotFromOtherProcess = malloc(world_rank* sizeof(int));
-            MPI_Recv (numbersBiggerThanPivotFromOtherProcess,numbersToSortLength,MPI_INT,2,0,MPI_COMM_WORLD,MPI_STATUS_IGNORE);
-
-            sequentialQuicksort(numbersBiggerThanPivotFromOtherProcess, world_rank);
-            sequentialQuicksort(processInputSegment, world_rank);
-            free(numbersBiggerThanPivotFromOtherProcess);
+        if (world_rank % 2 == 0) { //process 2
+            handleEvenChildProcess(inputsBiggerThanPivot, inputsSmallerThanPivot, world_rank, numbersToSortLength);
+        } else { //process 1
+            handleOddChildProcess(inputsSmallerThanPivot, inputsBiggerThanPivot, world_rank, numbersToSortLength);
         }
-        free(processInputSegment);
-        free(inputsBiggerThanPivot);
-        free(inputsSmallerThanPivot);
     } else {
         int pivot = getPivot(numbersToSort, numbersToSortLength);
         MPI_Bcast(&pivot, 1, MPI_INT, 0, MPI_COMM_WORLD);
     }
     MPI_Finalize();
     return 0;
+}
+
+void handleEvenChildProcess (struct ProcessInput inputsBiggerThanPivot, struct ProcessInput inputsSmallerThanPivot, int world_rank, int numbersToSortLength) {
+    MPI_Send(inputsBiggerThanPivot.numbersToSort, inputsBiggerThanPivot.numbersCount, MPI_INT, 1, 0, MPI_COMM_WORLD);
+    MPI_Send(&inputsBiggerThanPivot.numbersCount, 1, MPI_INT, 1, 0, MPI_COMM_WORLD);
+
+    int *numbersSmallerThanPivotFromOtherProcess = malloc(world_rank * sizeof(int));
+    int numbersSmallerThanPivotFromOtherProcessCount;
+    MPI_Recv(numbersSmallerThanPivotFromOtherProcess, numbersToSortLength, MPI_INT, 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    MPI_Recv(&numbersSmallerThanPivotFromOtherProcessCount, 1, MPI_INT, 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+
+    struct ProcessInput inputsSmallerThanPivotFromOtherProcesses = getProcessInputFromArrayPointer(numbersSmallerThanPivotFromOtherProcess, numbersSmallerThanPivotFromOtherProcessCount);
+    struct ProcessInput mergedInputs = mergeProcessInputs(inputsSmallerThanPivotFromOtherProcesses, inputsSmallerThanPivot);
+    for(int i =0; i< mergedInputs.numbersCount; i++) {
+        printf("%d \n", mergedInputs.numbersToSort[i]);
+    }
+
+}
+
+void handleOddChildProcess (struct ProcessInput inputsSmallerThanPivot, struct ProcessInput inputsBiggerThanPivot, int world_rank, int numbersToSortLength) {
+    int *numbersBiggerThanPivotFromOtherProcess = malloc(world_rank * sizeof(int));
+    int numbersbiggerThanPivotFromOtherProcessCount;
+    MPI_Recv(numbersBiggerThanPivotFromOtherProcess, numbersToSortLength, MPI_INT, 2, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    MPI_Recv(&numbersbiggerThanPivotFromOtherProcessCount, 1, MPI_INT, 2, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+
+    MPI_Send(inputsSmallerThanPivot.numbersToSort, inputsSmallerThanPivot.numbersCount, MPI_INT, 2, 0, MPI_COMM_WORLD);
+    MPI_Send(&inputsSmallerThanPivot.numbersCount, 1, MPI_INT, 2, 0, MPI_COMM_WORLD);
+
+    struct ProcessInput inputsBiggerThanPivotFromOtherProcesses = getProcessInputFromArrayPointer(numbersBiggerThanPivotFromOtherProcess, numbersbiggerThanPivotFromOtherProcessCount);
+    struct ProcessInput mergedInputs = mergeProcessInputs(inputsBiggerThanPivotFromOtherProcesses, inputsBiggerThanPivot);
+
+    for(int i =0; i< mergedInputs.numbersCount; i++) {
+        printf("%d \n", mergedInputs.numbersToSort[i]);
+    }
+}
+
+struct ProcessInput mergeProcessInputs(struct ProcessInput processInput1, struct ProcessInput processInput2) {
+    struct ProcessInput processInput;
+    processInput.numbersCount = processInput1.numbersCount + processInput2.numbersCount;
+    for (int i=0; i < processInput1.numbersCount; i++) {
+        processInput.numbersToSort[i] = processInput1.numbersToSort[i];
+    }
+    int processInput2Index = 0;
+    for (int i = processInput1.numbersCount; i < processInput.numbersCount; i++) {
+        processInput.numbersToSort[i] = processInput2.numbersToSort[processInput2Index];
+        processInput2Index++;
+    }
+    return processInput;
+}
+
+struct ProcessInput getProcessInputFromArrayPointer(int *pointerToArray, int arrayLength) {
+    struct ProcessInput processInput;
+    processInput.numbersCount = arrayLength;
+
+    for(int i =0; i < arrayLength; i++){
+        processInput.numbersToSort[i] = pointerToArray[i];
+    }
+    return processInput;
 }
 
 void sequentialQuicksort(int *arrayPointer, int arrayLength) {
@@ -97,53 +143,6 @@ void sequentialQuicksort(int *arrayPointer, int arrayLength) {
     sequentialQuicksort(arrayPointer + leftIndex, arrayLength - leftIndex);
 }
 
-void assignInputSmallerThanPivot(int input[], int inputSize, int pivot, int *arrayToAssignResult) {
-    int *inputSmallerThanPivot = malloc(inputSize * sizeof(int));
-    int inputSmallerThanPivotIndex = 0;
-    for (int i = 0; i < inputSize; i++) {
-        if (input[i] < pivot) {
-            inputSmallerThanPivot[inputSmallerThanPivotIndex] = input[i];
-            inputSmallerThanPivotIndex++;
-        }
-    }
-    memcpy(arrayToAssignResult, inputSmallerThanPivot, inputSmallerThanPivotIndex * sizeof(int));
-    free(inputSmallerThanPivot);
-}
-
-void assignInputBiggerThanPivot(int input[], int inputSize, int pivot, int *arrayToAssignResult) {
-    int *inputBiggerThanPivot = malloc(inputSize * sizeof(int));
-    int inputBiggerThanPivotIndex = 0;
-    for (int i = 0; i < inputSize; i++) {
-        if (input[i] >= pivot) {
-            inputBiggerThanPivot[inputBiggerThanPivotIndex] = input[i];
-            inputBiggerThanPivotIndex++;
-        }
-    }
-    memcpy(arrayToAssignResult, inputBiggerThanPivot, inputBiggerThanPivotIndex * sizeof(int));
-    free(inputBiggerThanPivot);
-}
-
-int getPivot(int numbersToSort[], int numbersToSortLength) {
-    return numbersToSort[arc4random() % numbersToSortLength];
-};
-
-void initializeProcessInput(int input[], int inputSize, int processRank, int world_size, int *arrayToAssignResult) {
-    float nonMasterProcessWorldSize = world_size - 1;
-    int processInputFragmentEndIndex = (int) ((processRank / nonMasterProcessWorldSize) * inputSize);
-    int processInputFragmentStartIndex =
-            processRank - 1 == 0 ? 0 : (int) (((processRank - 1) / nonMasterProcessWorldSize) * inputSize);
-
-    int *processInputSegment = malloc(((world_size / processRank) + 1) * sizeof(int));
-
-    int processInputSegmentCurrentIndex = 0;
-    for (int i = processInputFragmentStartIndex; i < processInputFragmentEndIndex; i++) {
-        processInputSegment[processInputSegmentCurrentIndex] = input[i];
-        processInputSegmentCurrentIndex++;
-    }
-    memcpy(arrayToAssignResult, processInputSegment, (int) sizeof(processInputSegment) * sizeof(int));
-    free(processInputSegment);
-}
-
 void printIntegerArray(int *arrayPointer, int arrayLength) {
     for (int i = 0; i < arrayLength; i++) {
         printf("%d|", arrayPointer[i]);
@@ -151,4 +150,43 @@ void printIntegerArray(int *arrayPointer, int arrayLength) {
     printf("\n");
 }
 
+int getPivot(int numbersToSort[], int numbersToSortLength) {
+    return numbersToSort[arc4random() % numbersToSortLength];
+};
 
+
+struct ProcessInput getProcessInput(int worldProcessCount, int processRank, int numbersToSort[], int numbersCount) {
+    int index;
+    struct ProcessInput processInput;
+    processInput.numbersCount = numbersCount / (worldProcessCount - 1);
+    index = (processRank - 1) * numbersCount / processRank;
+    memcpy(processInput.numbersToSort, &numbersToSort[index], processInput.numbersCount * sizeof(int));
+
+    return processInput;
+}
+
+struct ProcessInput getProcessInputSmallerThanPivot(struct ProcessInput processInput, int pivot) {
+    int index = 0;
+    struct ProcessInput processInputSmallerThanPivot;
+    for (int i = 0; i < processInput.numbersCount; i++) {
+        if (processInput.numbersToSort[i] < pivot) {
+            processInputSmallerThanPivot.numbersToSort[index] = processInput.numbersToSort[i];
+            index++;
+        }
+    }
+    processInputSmallerThanPivot.numbersCount = index;
+    return processInputSmallerThanPivot;
+}
+
+struct ProcessInput getProcessInputBiggerThanPivot(struct ProcessInput processInput, int pivot) {
+    int index = 0;
+    struct ProcessInput processInputBiggerThanPivot;
+    for (int i = 0; i < processInput.numbersCount; i++) {
+        if (processInput.numbersToSort[i] >= pivot) {
+            processInputBiggerThanPivot.numbersToSort[index] = processInput.numbersToSort[i];
+            index++;
+        }
+    }
+    processInputBiggerThanPivot.numbersCount = index;
+    return processInputBiggerThanPivot;
+}
